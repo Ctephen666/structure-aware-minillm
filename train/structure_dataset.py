@@ -21,6 +21,12 @@ from parser.structure_states import PLAIN
 IGNORE_INDEX = -100
 
 
+def tokens_to_ids(tokens: list[str], tokenizer) -> list[int]:
+    if hasattr(tokenizer, "token_to_id_value"):
+        return [int(tokenizer.token_to_id_value(token)) for token in tokens]
+    return [int(tokenizer.token_to_id.get(token, tokenizer.unk_id)) for token in tokens]
+
+
 def build_instruction_parts(prompt: str, answer: str) -> tuple[str, str]:
     prompt_part = "### Instruction:\n" + prompt.strip() + "\n\n### Response:\n"
     answer_part = answer.strip() + "\n"
@@ -60,7 +66,7 @@ def row_to_training_text(row: dict[str, Any] | str) -> str:
 
 def _annotate_with_special_tokens(text: str, tokenizer, annotator: StructureAnnotator) -> tuple[list[int], list[int], list[int]]:
     tokens = tokenizer.tokenize(text)
-    token_ids = [tokenizer.bos_id] + [tokenizer.token_to_id.get(token, tokenizer.unk_id) for token in tokens] + [tokenizer.eos_id]
+    token_ids = [tokenizer.bos_id] + tokens_to_ids(tokens, tokenizer) + [tokenizer.eos_id]
     depth_ids, state_ids = annotator.annotate_tokens(tokens)
     depth_ids = [0] + depth_ids + [0]
     state_ids = [PLAIN] + state_ids + [PLAIN]
@@ -168,4 +174,3 @@ class StructureLanguageModelingDataset(Dataset):
             self.depth_targets[item],
             self.state_targets[item],
         )
-

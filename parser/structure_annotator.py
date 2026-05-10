@@ -49,10 +49,10 @@ class StructureAnnotator:
         depth_ids: list[int] = []
         state_ids: list[int] = []
 
-        for token in tokens:
+        for index, token in enumerate(tokens):
             depth_ids.append(self._current_depth())
             state_ids.append(self._current_state(token))
-            self._update_after_token(token)
+            self._update_after_token(token, self._detect_fence_at(tokens, index))
 
         return depth_ids, state_ids
 
@@ -79,8 +79,8 @@ class StructureAnnotator:
             return MD_OUTER_FENCE
         return MD_TEXT if not self.line_start else PLAIN
 
-    def _update_after_token(self, token: str) -> None:
-        self._update_markdown_state(token)
+    def _update_after_token(self, token: str, fence_override: tuple[str, int, str] | None = None) -> None:
+        self._update_markdown_state(token, fence_override)
         self._update_json_state(token)
         self._update_line_position(token)
 
@@ -113,11 +113,11 @@ class StructureAnnotator:
                 self.json_stack.pop()
             self.json_depth = max(0, self.json_depth - 1)
 
-    def _update_markdown_state(self, token: str) -> None:
+    def _update_markdown_state(self, token: str, fence_override: tuple[str, int, str] | None = None) -> None:
         if not self.line_start:
             return
 
-        fence = self._detect_fence_token(token)
+        fence = fence_override or self._detect_fence_token(token)
         if fence is None:
             return
 
@@ -151,6 +151,30 @@ class StructureAnnotator:
 
         suffix = stripped[length:].strip()
         return char, length, suffix
+
+    def _detect_fence_at(self, tokens: list[str], index: int) -> tuple[str, int, str] | None:
+        token_fence = self._detect_fence_token(tokens[index])
+        if token_fence is not None:
+            return token_fence
+
+        stripped = tokens[index].strip()
+        if stripped not in (BT, TD):
+            return None
+
+        char = stripped
+        length = 0
+        cursor = index
+        while cursor < len(tokens):
+            part = tokens[cursor].strip()
+            if part and all(ch == char for ch in part):
+                length += len(part)
+                cursor += 1
+                continue
+            break
+
+        if length < 3:
+            return None
+        return char, length, ""
 
     def _update_line_position(self, token: str) -> None:
         if "\n" in token:

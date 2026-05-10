@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+
+.cache/
+
+checkpoints/*.pt
+data/pretrain/
+
+results/*_eval_cases.jsonl
+results/*_failure_cases.jsonl
+results/*_metrics.json
+

@@ -1,0 +1,31 @@
+seed: 42
+
+tokenizer_type: hf
+tokenizer_name: uer/gpt2-chinese-cluecorpussmall
+hf_cache_dir: .cache/huggingface
+
+block_size: 512
+n_layer: 12
+n_head: 8
+n_embd: 512
+dropout: 0.1
+
+max_depth: 32
+num_states: 9
+lambda_depth: 0.05
+lambda_state: 0.10
+
+batch_size: 8
+gradient_accumulation_steps: 1
+learning_rate: 0.0003
+weight_decay: 0.1
+max_steps: 50000
+eval_interval: 500
+save_interval: 2000
+eval_iters: 50
+grad_clip: 1.0
+num_workers: 0
+
+train_path: data/pretrain/skypile_100mb_train.jsonl
+valid_path: data/pretrain/skypile_100mb_valid.jsonl
+checkpoint_path: checkpoints/struct_pretrain_50m.pt

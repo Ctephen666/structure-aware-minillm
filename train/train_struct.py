@@ -17,9 +17,9 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from model.struct_transformer import StructTransformerConfig, StructTransformerModel
-from tokenizer.regex_tokenizer import RegexTokenizer
 from train.dataset import read_text_samples
 from train.structure_dataset import StructureLanguageModelingDataset
+from tokenizer.tokenizer_factory import build_tokenizer
 
 
 def load_config(path: str | Path) -> dict:
@@ -76,7 +76,7 @@ def save_checkpoint(
     )
 
 
-def build_model_config(cfg: dict, tokenizer: RegexTokenizer) -> StructTransformerConfig:
+def build_model_config(cfg: dict, tokenizer) -> StructTransformerConfig:
     return StructTransformerConfig(
         vocab_size=tokenizer.vocab_size,
         block_size=int(cfg["block_size"]),
@@ -91,6 +91,10 @@ def build_model_config(cfg: dict, tokenizer: RegexTokenizer) -> StructTransforme
     )
 
 
+def count_parameters(model: torch.nn.Module) -> int:
+    return sum(param.numel() for param in model.parameters())
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default=str(PROJECT_ROOT / "configs" / "struct.yaml"))
@@ -98,6 +102,9 @@ def main() -> None:
     parser.add_argument("--batch-size", type=int, default=None)
     parser.add_argument("--block-size", type=int, default=None)
     parser.add_argument("--eval-iters", type=int, default=None)
+    parser.add_argument("--train-path", default=None)
+    parser.add_argument("--valid-path", default=None)
+    parser.add_argument("--checkpoint-path", default=None)
     parser.add_argument("--device", default=None)
     args = parser.parse_args()
 
@@ -110,20 +117,22 @@ def main() -> None:
         cfg["block_size"] = args.block_size
     if args.eval_iters is not None:
         cfg["eval_iters"] = args.eval_iters
+    if args.train_path is not None:
+        cfg["train_path"] = args.train_path
+    if args.valid_path is not None:
+        cfg["valid_path"] = args.valid_path
+    if args.checkpoint_path is not None:
+        cfg["checkpoint_path"] = args.checkpoint_path
 
     torch.manual_seed(int(cfg.get("seed", 42)))
     device = torch.device(args.device or ("cuda" if torch.cuda.is_available() else "cpu"))
 
     train_path = PROJECT_ROOT / cfg["train_path"]
     valid_path = PROJECT_ROOT / cfg["valid_path"]
-    train_texts = read_text_samples(train_path)
-
-    tokenizer_path = PROJECT_ROOT / cfg.get("tokenizer_path", "checkpoints/baseline_tokenizer.json")
-    if tokenizer_path.exists():
-        tokenizer = RegexTokenizer.load(tokenizer_path)
-    else:
-        tokenizer = RegexTokenizer.train_from_texts(train_texts, vocab_size=int(cfg["vocab_size"]))
-        tokenizer.save(tokenizer_path)
+    train_texts = None
+    if str(cfg.get("tokenizer_type", "regex")).lower() != "hf":
+        train_texts = read_text_samples(train_path)
+    tokenizer = build_tokenizer(cfg, PROJECT_ROOT, train_texts)
 
     block_size = int(cfg["block_size"])
     train_dataset = StructureLanguageModelingDataset(train_path, tokenizer, block_size)
@@ -146,6 +155,8 @@ def main() -> None:
     )
 
     model = StructTransformerModel(build_model_config(cfg, tokenizer)).to(device)
+    print(f"Tokenizer vocab size: {tokenizer.vocab_size}")
+    print(f"Model parameters: {count_parameters(model) / 1_000_000:.2f}M")
     optimizer = torch.optim.AdamW(
         model.parameters(),
         lr=float(cfg["learning_rate"]),
