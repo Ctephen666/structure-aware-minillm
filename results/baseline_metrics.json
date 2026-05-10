@@ -1,0 +1,31 @@
+{
+  "total": 60,
+  "passed": 60,
+  "failed": 0,
+  "overall_pass_rate": 1.0,
+  "fer": 0.0,
+  "failure_reasons": {},
+  "by_group": {
+    "markdown": {
+      "total": 20,
+      "passed": 20,
+      "failed": 0,
+      "pass_rate": 1.0
+    },
+    "json": {
+      "total": 20,
+      "passed": 20,
+      "failed": 0,
+      "pass_rate": 1.0
+    },
+    "mixed": {
+      "total": 20,
+      "passed": 20,
+      "failed": 0,
+      "pass_rate": 1.0
+    }
+  },
+  "json_ppr": 1.0,
+  "markdown_tdr": 1.0,
+  "mixed_ppr": 1.0
+}

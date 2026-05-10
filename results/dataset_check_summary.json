@@ -1,0 +1,24 @@
+{
+  "total": 60,
+  "passed": 60,
+  "failed": 0,
+  "pass_rate": 1.0,
+  "failure_reasons": {},
+  "by_task": {
+    "markdown_fence": {
+      "total": 20,
+      "passed": 20,
+      "failed": 0
+    },
+    "json_escape": {
+      "total": 20,
+      "passed": 20,
+      "failed": 0
+    },
+    "mixed": {
+      "total": 20,
+      "passed": 20,
+      "failed": 0
+    }
+  }
+}
