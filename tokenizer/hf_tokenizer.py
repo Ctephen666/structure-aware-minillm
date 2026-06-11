@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 
@@ -23,7 +24,12 @@ class HFTokenizer:
         except ImportError as exc:
             raise ImportError("Please install transformers to use HFTokenizer: pip install transformers") from exc
 
-        tokenizer = AutoTokenizer.from_pretrained(str(name_or_path), **kwargs)
+        try:
+            tokenizer = AutoTokenizer.from_pretrained(str(name_or_path), **kwargs)
+        except Exception:
+            if kwargs.get("local_files_only"):
+                raise
+            tokenizer = AutoTokenizer.from_pretrained(str(name_or_path), **{**kwargs, "local_files_only": True})
         tokenizer.model_max_length = 10**12
         return cls(tokenizer)
 
@@ -75,4 +81,8 @@ class HFTokenizer:
         return ids
 
     def decode(self, ids: list[int]) -> str:
-        return self.tokenizer.decode(ids, skip_special_tokens=True, clean_up_tokenization_spaces=True)
+        text = self.tokenizer.decode(ids, skip_special_tokens=True, clean_up_tokenization_spaces=True)
+        text = re.sub(r"(?<=[\u4e00-\u9fff])\s+(?=[\u4e00-\u9fff])", "", text)
+        text = re.sub(r"\s+([\u3001-\u303f\uff01-\uff5e])", r"\1", text)
+        text = re.sub(r"([\u3001-\u303f\uff01-\uff5e])\s+", r"\1", text)
+        return text

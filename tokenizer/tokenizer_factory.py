@@ -20,6 +20,8 @@ def build_tokenizer(cfg: dict, project_root: Path, train_texts: list[str] | None
         kwargs = {}
         if cache_dir:
             kwargs["cache_dir"] = str(project_root / cache_dir)
+        if bool(cfg.get("hf_local_files_only", False)):
+            kwargs["local_files_only"] = True
         return HFTokenizer.from_pretrained(tokenizer_name, **kwargs)
 
     tokenizer_path = project_root / cfg.get("tokenizer_path", "checkpoints/baseline_tokenizer.json")
@@ -32,12 +34,22 @@ def build_tokenizer(cfg: dict, project_root: Path, train_texts: list[str] | None
     return tokenizer
 
 
-def load_tokenizer(tokenizer_ref: str, project_root: Path, tokenizer_type: str = "auto"):
+def load_tokenizer(
+    tokenizer_ref: str,
+    project_root: Path,
+    tokenizer_type: str = "auto",
+    hf_cache_dir: str | None = None,
+    local_files_only: bool = False,
+):
     tokenizer_path = project_root / tokenizer_ref
     if tokenizer_type == "regex" or tokenizer_path.exists():
         return RegexTokenizer.load(tokenizer_path)
 
     from tokenizer.hf_tokenizer import HFTokenizer
 
-    return HFTokenizer.from_pretrained(tokenizer_ref)
-
+    kwargs = {}
+    if hf_cache_dir:
+        kwargs["cache_dir"] = str(project_root / hf_cache_dir)
+    if local_files_only:
+        kwargs["local_files_only"] = True
+    return HFTokenizer.from_pretrained(tokenizer_ref, **kwargs)

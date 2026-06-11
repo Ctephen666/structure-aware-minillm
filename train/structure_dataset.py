@@ -5,10 +5,11 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
+from itertools import count
 from typing import Any
 
 import torch
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, IterableDataset, get_worker_info
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
@@ -28,7 +29,7 @@ def tokens_to_ids(tokens: list[str], tokenizer) -> list[int]:
 
 
 def build_instruction_parts(prompt: str, answer: str) -> tuple[str, str]:
-    prompt_part = "### Instruction:\n" + prompt.strip() + "\n\n### Response:\n"
+    prompt_part = "问题：" + prompt.strip() + "\n回答："
     answer_part = answer.strip() + "\n"
     return prompt_part, answer_part
 
@@ -47,6 +48,20 @@ def load_structure_rows(path: str | Path) -> list[dict[str, Any] | str]:
                 continue
             rows.append(item if isinstance(item, dict) else str(item))
     return rows
+
+
+def iter_structure_rows(path: str | Path):
+    with Path(path).open("r", encoding="utf-8") as file:
+        for line in file:
+            line = line.rstrip("\n")
+            if not line:
+                continue
+            try:
+                item = json.loads(line)
+            except json.JSONDecodeError:
+                yield line
+                continue
+            yield item if isinstance(item, dict) else str(item)
 
 
 def row_to_training_text(row: dict[str, Any] | str) -> str:
@@ -73,6 +88,70 @@ def _annotate_with_special_tokens(text: str, tokenizer, annotator: StructureAnno
     return token_ids, depth_ids, state_ids
 
 
+def encode_structure_row(
+    row: dict[str, Any] | str,
+    tokenizer,
+    annotator: StructureAnnotator,
+) -> tuple[list[int], list[int], list[int], list[int], list[int], list[int]] | None:
+    if isinstance(row, dict) and isinstance(row.get("prompt"), str) and isinstance(row.get("answer"), str):
+        prompt_part, answer_part = build_instruction_parts(row["prompt"], row["answer"])
+        full_text = prompt_part + answer_part
+        prompt_ids = tokenizer.encode(prompt_part, add_special_tokens=False)
+        answer_ids = tokenizer.encode(answer_part, add_special_tokens=False)
+        token_ids, depth_full, state_full = _annotate_with_special_tokens(full_text, tokenizer, annotator)
+
+        expected_len = 1 + len(prompt_ids) + len(answer_ids) + 1
+        if len(token_ids) != expected_len:
+            raise ValueError(
+                f"SFT tokenization alignment failed: full={len(token_ids)}, parts={expected_len}."
+            )
+
+        label_full = [IGNORE_INDEX] * (1 + len(prompt_ids)) + answer_ids + [tokenizer.eos_id]
+        labels = label_full[1:]
+    else:
+        text = row_to_training_text(row)
+        if not text.strip():
+            return None
+        token_ids, depth_full, state_full = _annotate_with_special_tokens(text, tokenizer, annotator)
+        labels = token_ids[1:]
+
+    input_ids = token_ids[:-1]
+    depth_ids = depth_full[:-1]
+    state_ids = state_full[:-1]
+    depth_targets = depth_full[1:]
+    state_targets = state_full[1:]
+
+    for i, label in enumerate(labels):
+        if label == IGNORE_INDEX:
+            depth_targets[i] = IGNORE_INDEX
+            state_targets[i] = IGNORE_INDEX
+
+    lengths = {len(input_ids), len(labels), len(depth_ids), len(state_ids), len(depth_targets), len(state_targets)}
+    if len(lengths) != 1:
+        raise ValueError(f"Encoded sample alignment error: lengths={sorted(lengths)}")
+
+    return input_ids, labels, depth_ids, state_ids, depth_targets, state_targets
+
+
+def tensors_from_slices(
+    input_ids: list[int],
+    labels: list[int],
+    depth_ids: list[int],
+    state_ids: list[int],
+    depth_targets: list[int],
+    state_targets: list[int],
+    item: slice,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    return (
+        torch.tensor(input_ids[item], dtype=torch.long),
+        torch.tensor(labels[item], dtype=torch.long),
+        torch.tensor(depth_ids[item], dtype=torch.long),
+        torch.tensor(state_ids[item], dtype=torch.long),
+        torch.tensor(depth_targets[item], dtype=torch.long),
+        torch.tensor(state_targets[item], dtype=torch.long),
+    )
+
+
 class StructureLanguageModelingDataset(Dataset):
     """Fixed-length chunks with token, depth, and state targets."""
 
@@ -89,7 +168,7 @@ class StructureLanguageModelingDataset(Dataset):
         state_targets: list[int] = []
 
         for row in rows:
-            encoded = self._encode_row(row, tokenizer, annotator)
+            encoded = encode_structure_row(row, tokenizer, annotator)
             if encoded is None:
                 continue
             row_input_ids, row_labels, row_depth_ids, row_state_ids, row_depth_targets, row_state_targets = encoded
@@ -116,51 +195,6 @@ class StructureLanguageModelingDataset(Dataset):
         self.depth_targets = torch.tensor(depth_targets, dtype=torch.long)
         self.state_targets = torch.tensor(state_targets, dtype=torch.long)
 
-    def _encode_row(
-        self,
-        row: dict[str, Any] | str,
-        tokenizer,
-        annotator: StructureAnnotator,
-    ) -> tuple[list[int], list[int], list[int], list[int], list[int], list[int]] | None:
-        if isinstance(row, dict) and isinstance(row.get("prompt"), str) and isinstance(row.get("answer"), str):
-            prompt_part, answer_part = build_instruction_parts(row["prompt"], row["answer"])
-            full_text = prompt_part + answer_part
-            prompt_ids = tokenizer.encode(prompt_part, add_special_tokens=False)
-            answer_ids = tokenizer.encode(answer_part, add_special_tokens=False)
-            token_ids, depth_full, state_full = _annotate_with_special_tokens(full_text, tokenizer, annotator)
-
-            expected_len = 1 + len(prompt_ids) + len(answer_ids) + 1
-            if len(token_ids) != expected_len:
-                raise ValueError(
-                    f"SFT tokenization alignment failed: full={len(token_ids)}, parts={expected_len}."
-                )
-
-            label_full = [IGNORE_INDEX] * (1 + len(prompt_ids)) + answer_ids + [tokenizer.eos_id]
-            labels = label_full[1:]
-        else:
-            text = row_to_training_text(row)
-            if not text.strip():
-                return None
-            token_ids, depth_full, state_full = _annotate_with_special_tokens(text, tokenizer, annotator)
-            labels = token_ids[1:]
-
-        input_ids = token_ids[:-1]
-        depth_ids = depth_full[:-1]
-        state_ids = state_full[:-1]
-        depth_targets = depth_full[1:]
-        state_targets = state_full[1:]
-
-        for i, label in enumerate(labels):
-            if label == IGNORE_INDEX:
-                depth_targets[i] = IGNORE_INDEX
-                state_targets[i] = IGNORE_INDEX
-
-        lengths = {len(input_ids), len(labels), len(depth_ids), len(state_ids), len(depth_targets), len(state_targets)}
-        if len(lengths) != 1:
-            raise ValueError(f"Encoded sample alignment error: lengths={sorted(lengths)}")
-
-        return input_ids, labels, depth_ids, state_ids, depth_targets, state_targets
-
     def __len__(self) -> int:
         return len(self.input_ids) - self.block_size + 1
 
@@ -174,3 +208,119 @@ class StructureLanguageModelingDataset(Dataset):
             self.depth_targets[item],
             self.state_targets[item],
         )
+
+
+class StreamingStructureLanguageModelingDataset(IterableDataset):
+    """Stream fixed-length structure-aware chunks from a JSONL file."""
+
+    def __init__(self, source: str | Path, tokenizer, block_size: int, stride: int | None = None) -> None:
+        self.source = Path(source)
+        self.tokenizer = tokenizer
+        self.block_size = block_size
+        self.stride = stride or block_size
+        if self.stride <= 0:
+            raise ValueError(f"stride must be positive, got {self.stride}.")
+
+    def __iter__(self):
+        worker_info = get_worker_info()
+        worker_id = worker_info.id if worker_info is not None else 0
+        num_workers = worker_info.num_workers if worker_info is not None else 1
+
+        annotator = StructureAnnotator()
+        input_ids: list[int] = []
+        labels: list[int] = []
+        depth_ids: list[int] = []
+        state_ids: list[int] = []
+        depth_targets: list[int] = []
+        state_targets: list[int] = []
+
+        for row_idx, row in enumerate(iter_structure_rows(self.source)):
+            if row_idx % num_workers != worker_id:
+                continue
+            encoded = encode_structure_row(row, self.tokenizer, annotator)
+            if encoded is None:
+                continue
+
+            row_input_ids, row_labels, row_depth_ids, row_state_ids, row_depth_targets, row_state_targets = encoded
+            input_ids.extend(row_input_ids)
+            labels.extend(row_labels)
+            depth_ids.extend(row_depth_ids)
+            state_ids.extend(row_state_ids)
+            depth_targets.extend(row_depth_targets)
+            state_targets.extend(row_state_targets)
+
+            while len(input_ids) >= self.block_size:
+                item = slice(0, self.block_size)
+                yield tensors_from_slices(
+                    input_ids,
+                    labels,
+                    depth_ids,
+                    state_ids,
+                    depth_targets,
+                    state_targets,
+                    item,
+                )
+                del input_ids[: self.stride]
+                del labels[: self.stride]
+                del depth_ids[: self.stride]
+                del state_ids[: self.stride]
+                del depth_targets[: self.stride]
+                del state_targets[: self.stride]
+
+
+class WeightedStreamingStructureLanguageModelingDataset(IterableDataset):
+    """Stream chunks from multiple JSONL files with a deterministic weighted mix."""
+
+    def __init__(
+        self,
+        sources: list[dict[str, Any]],
+        tokenizer,
+        block_size: int,
+        stride: int | None = None,
+        repeat: bool = True,
+    ) -> None:
+        if not sources:
+            raise ValueError("Weighted streaming dataset requires at least one source.")
+        self.sources = sources
+        self.tokenizer = tokenizer
+        self.block_size = block_size
+        self.stride = stride
+        self.repeat = repeat
+
+        self.weights: list[float] = []
+        for source in self.sources:
+            weight = float(source.get("weight", 1.0))
+            if weight <= 0:
+                raise ValueError(f"Source weight must be positive, got {weight}: {source}")
+            self.weights.append(weight)
+
+    def _make_iter(self, source: dict[str, Any]):
+        dataset = StreamingStructureLanguageModelingDataset(
+            source["path"],
+            self.tokenizer,
+            self.block_size,
+            stride=self.stride,
+        )
+        return iter(dataset)
+
+    def _pick_source(self, current_weights: list[float], total_weight: float) -> int:
+        for idx, weight in enumerate(self.weights):
+            current_weights[idx] += weight
+        selected = max(range(len(current_weights)), key=current_weights.__getitem__)
+        current_weights[selected] -= total_weight
+        return selected
+
+    def __iter__(self):
+        iterators = [self._make_iter(source) for source in self.sources]
+        current_weights = [0.0] * len(self.sources)
+        total_weight = sum(self.weights)
+
+        for _ in count():
+            selected = self._pick_source(current_weights, total_weight)
+            try:
+                yield next(iterators[selected])
+            except StopIteration:
+                if not self.repeat:
+                    return
+                iterators[selected] = self._make_iter(self.sources[selected])
+                yield next(iterators[selected])

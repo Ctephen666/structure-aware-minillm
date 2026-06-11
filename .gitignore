@@ -2,11 +2,28 @@ __pycache__/
 *.py[cod]
 
 .cache/
+logs/
+*.log
 
+# Large model artifacts and training outputs
 checkpoints/*.pt
+checkpoints/*.pth
+checkpoints/*.ckpt
+checkpoints/*.bin
+checkpoints/*.safetensors
+outputs/
+runs/
+wandb/
+
+# Large datasets generated or downloaded locally
 data/pretrain/
+data/sft/
+data/**/*.parquet
+data/**/*.arrow
+data/**/*.tar
+data/**/*.tar.gz
+data/**/*.zip
 
 results/*_eval_cases.jsonl
 results/*_failure_cases.jsonl
 results/*_metrics.json
-
