@@ -1,258 +1,263 @@
-"""Chat-style inference for SFT checkpoints.
-
-This script uses the same prompt/answer wrapper as the SFT dataset builder, so
-the inference prompt matches the format seen during supervised fine-tuning.
-"""
-
-from __future__ import annotations
-
 import argparse
-import os
 import sys
 from pathlib import Path
-from typing import Any
-
-os.environ.setdefault("USE_TF", "0")
-os.environ.setdefault("TRANSFORMERS_NO_TF", "1")
-os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")
-
 import torch
-import torch.nn.functional as F
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
+# 将项目根目录加入环境路径
+PROJECT_ROOT = Path(__file__).absolute().parents[1]
+sys.path.append(str(PROJECT_ROOT))
 
-from model.struct_transformer import StructTransformerConfig, StructTransformerModel
-from parser.structure_annotator import StructureAnnotator
-from parser.structure_states import PLAIN
+from model.struct_transformer import StructTransformerModel, StructTransformerConfig
 from tokenizer.tokenizer_factory import load_tokenizer
-from train.structure_dataset import build_instruction_parts
 
-
-SPECIAL_TOKENS = {"<pad>", "<unk>", "<bos>", "<eos>"}
-
-
-def resolve_path(value: str | Path) -> Path:
-    path = Path(value)
-    return path if path.is_absolute() else PROJECT_ROOT / path
-
-
-def load_checkpoint_config(model_path: str | Path) -> dict[str, Any]:
-    checkpoint = torch.load(resolve_path(model_path), map_location="cpu", weights_only=False)
-    config = checkpoint.get("config", {})
-    if not isinstance(config, dict):
-        raise ValueError("Checkpoint config is missing or invalid.")
-    return config
-
-
-def load_model(model_path: str | Path, tokenizer, device: torch.device) -> StructTransformerModel:
-    checkpoint = torch.load(resolve_path(model_path), map_location="cpu", weights_only=False)
-    cfg = checkpoint["config"]
-    model_config = StructTransformerConfig(
-        vocab_size=int(tokenizer.vocab_size),
-        block_size=int(cfg["block_size"]),
-        n_layer=int(cfg["n_layer"]),
-        n_head=int(cfg["n_head"]),
-        n_embd=int(cfg["n_embd"]),
-        dropout=float(cfg.get("dropout", 0.0)),
-        max_depth=int(cfg.get("max_depth", 32)),
-        num_states=int(cfg.get("num_states", 9)),
-        lambda_depth=float(cfg.get("lambda_depth", 0.03)),
-        lambda_state=float(cfg.get("lambda_state", 0.05)),
+def load_model(model_path: str, tokenizer, device: str):
+    print(f"Loading checkpoint from {model_path}...")
+    # weights_only=False 消除未来警告
+    checkpoint = torch.load(model_path, map_location=device, weights_only=False)
+    
+    # 🌟 核心安全机制：直接根据你训练的 configs/struct_sft_200m_4090.yaml 硬编码模型结构
+    model_cfg = StructTransformerConfig(
+        block_size=1024,
+        vocab_size=tokenizer.vocab_size,  # 动态完美对齐 UER 21128 词表
+        n_layer=26,                       # 对应 200M 模型层数
+        n_head=12,                        # 对应 200M 模型头数
+        n_embd=768,                       # 对应 200M 模型隐藏层维度
+        dropout=0.1,
+        max_depth=32,
+        num_states=9,
+        lambda_depth=0.03,
+        lambda_state=0.05,
     )
-    model = StructTransformerModel(model_config)
-    model.load_state_dict(checkpoint["model"])
+    
+    model = StructTransformerModel(model_cfg)
+    
+    # 自动识别是复合 checkpoint 还是单纯的 state_dict
+    if isinstance(checkpoint, dict) and "model" in checkpoint:
+        state_dict = checkpoint["model"]
+    else:
+        state_dict = checkpoint
+        
+    model.load_state_dict(state_dict)
     model.to(device)
     model.eval()
     return model
 
 
-def build_tokenizer_from_checkpoint(cfg: dict[str, Any], args: argparse.Namespace):
-    tokenizer_ref = args.tokenizer or cfg.get("tokenizer_name") or cfg.get("tokenizer_path")
-    if tokenizer_ref is None:
-        raise ValueError("Tokenizer was not provided and checkpoint config has no tokenizer_name/tokenizer_path.")
-    hf_cache_dir = args.hf_cache_dir or cfg.get("hf_cache_dir")
-    local_files_only = args.local_files_only or bool(cfg.get("hf_local_files_only", False))
-    tokenizer_type = "hf" if "/" in str(tokenizer_ref) and not resolve_path(tokenizer_ref).exists() else "auto"
-    return load_tokenizer(
-        str(tokenizer_ref),
-        PROJECT_ROOT,
-        tokenizer_type=tokenizer_type,
-        hf_cache_dir=hf_cache_dir,
-        local_files_only=local_files_only,
-    )
+def build_chat_prompt(prompt: str, history: list[tuple[str, str]] | None = None, history_turns: int = 3) -> str:
+    """Build the same SFT-style prompt, with optional recent dialogue history."""
+    history = history or []
+    kept_history = history[-history_turns:] if history_turns > 0 else []
+
+    if not kept_history:
+        return f"问题：{prompt.strip()}\n回答："
+
+    parts = ["以下是用户与助手的多轮对话。请结合上下文回答当前用户问题。\n"]
+    for user_text, assistant_text in kept_history:
+        parts.append(f"问题：{user_text.strip()}\n回答：{assistant_text.strip()}\n")
+    parts.append(f"问题：{prompt.strip()}\n回答：")
+    return "".join(parts)
 
 
-def apply_top_k(logits: torch.Tensor, top_k: int | None) -> torch.Tensor:
-    if top_k is None or top_k <= 0:
-        return logits
-    values, _ = torch.topk(logits, min(top_k, logits.size(-1)))
-    return logits.masked_fill(logits < values[:, [-1]], -float("inf"))
+def clean_generated_text(text: str) -> str:
+    """Stop the model from spilling into the next artificial dialogue turn."""
+    stop_markers = ["\n问题：", "\n回答：", "\nPrompt:", "\nAnswer:", "用户：", "助手：", "User ＞", "Model ＞"]
+    for marker in stop_markers:
+        idx = text.find(marker)
+        if idx != -1:
+            text = text[:idx]
+    return text.strip()
 
 
-def apply_repetition_penalty(logits: torch.Tensor, generated_ids: list[int], penalty: float) -> torch.Tensor:
-    if penalty <= 1.0 or not generated_ids:
-        return logits
-    adjusted = logits.clone()
-    for token_id in set(int(idx) for idx in generated_ids):
-        score = adjusted[:, token_id]
-        adjusted[:, token_id] = torch.where(score < 0, score * penalty, score / penalty)
-    return adjusted
+def get_stop_token_ids(tokenizer) -> set[int]:
+    """Collect real special token ids used by local/HF tokenizer wrappers."""
+    stop_ids: set[int] = set()
+    for attr in [
+        "eos_id",
+        "eos_token_id",
+        "sep_id",
+        "sep_token_id",
+        "pad_id",
+        "pad_token_id",
+    ]:
+        value = getattr(tokenizer, attr, None)
+        if isinstance(value, int) and value >= 0:
+            stop_ids.add(int(value))
+    # Some local tokenizers use 0 as PAD. Keep it as a safe stop id.
+    stop_ids.add(0)
+    return stop_ids
 
 
-def apply_no_repeat_ngram(logits: torch.Tensor, generated_ids: list[int], ngram_size: int) -> torch.Tensor:
-    if ngram_size <= 0 or len(generated_ids) + 1 < ngram_size:
-        return logits
-    prefix_size = ngram_size - 1
-    current_prefix = tuple(generated_ids[-prefix_size:])
-    banned_tokens: set[int] = set()
-    for index in range(len(generated_ids) - ngram_size + 1):
-        ngram = tuple(generated_ids[index : index + ngram_size])
-        if ngram[:-1] == current_prefix:
-            banned_tokens.add(int(ngram[-1]))
-    if not banned_tokens:
-        return logits
-    adjusted = logits.clone()
-    adjusted[:, list(banned_tokens)] = -float("inf")
-    return adjusted
-
-
-def annotate_token_ids(ids: list[int], tokenizer, annotator: StructureAnnotator) -> tuple[list[int], list[int]]:
-    tokens: list[str] = []
-    positions: list[int] = []
-    for pos, token_id in enumerate(ids):
-        token = tokenizer.id_to_token.get(int(token_id), tokenizer.unk_token)
-        if token in SPECIAL_TOKENS:
-            continue
-        tokens.append(token)
-        positions.append(pos)
-
-    depth_ids = [0] * len(ids)
-    state_ids = [PLAIN] * len(ids)
-    if tokens:
-        depths, states = annotator.annotate_tokens(tokens)
-        for pos, depth, state in zip(positions, depths, states):
-            depth_ids[pos] = depth
-            state_ids[pos] = state
-    return depth_ids, state_ids
-
-
-def format_sft_prompt(instruction: str, input_text: str = "") -> str:
-    prompt = instruction.strip()
-    if input_text.strip():
-        prompt = prompt + "\n" + input_text.strip()
-    prompt_part, _ = build_instruction_parts(prompt, "")
-    return prompt_part
-
+def has_text_stop_marker(text: str) -> bool:
+    """Detect common spillover markers while generating."""
+    markers = [
+        "\n问题：",
+        "\n回答：",
+        "\nPrompt:",
+        "\nAnswer:",
+        "用户：",
+        "助手：",
+    ]
+    return any(marker in text for marker in markers)
 
 @torch.no_grad()
-def generate_answer(
-    model: StructTransformerModel,
+def generate_response(
+    model,
     tokenizer,
-    instruction: str,
-    input_text: str,
-    device: torch.device,
-    max_new_tokens: int,
-    temperature: float,
-    top_k: int | None,
-    repetition_penalty: float,
-    no_repeat_ngram_size: int,
-) -> str:
-    annotator = StructureAnnotator(max_depth=model.config.max_depth)
-    prompt = format_sft_prompt(instruction, input_text)
-    prompt_ids = [tokenizer.bos_id] + tokenizer.encode(prompt, add_special_tokens=False)
-    input_ids = torch.tensor([prompt_ids], dtype=torch.long, device=device)
-
-    generated_ids: list[int] = []
+    prompt: str,
+    device: str,
+    max_new_tokens: int = 256,
+    temperature: float = 0.7,
+    top_k: int = 50,
+    history: list[tuple[str, str]] | None = None,
+    history_turns: int = 3,
+):
+    # 严格按照 SFT 阶段的推理包裹格式；交互模式下可拼接最近几轮历史
+    raw_text = build_chat_prompt(prompt, history=history, history_turns=history_turns)
+    
+    if hasattr(tokenizer, 'encode'):
+        input_ids = tokenizer.encode(raw_text)
+    else:
+        input_ids = tokenizer.encode_text(raw_text) if hasattr(tokenizer, 'encode_text') else tokenizer(raw_text)["input_ids"]
+        
+    x = torch.tensor(input_ids, dtype=torch.long, device=device).unsqueeze(0)
+    
+    generated_ids = []
+    stop_token_ids = get_stop_token_ids(tokenizer)
     for _ in range(max_new_tokens):
-        full_ids = input_ids[0].tolist()
-        depth_ids, state_ids = annotate_token_ids(full_ids, tokenizer, annotator)
-        context_ids = full_ids[-model.config.block_size :]
-        context_depths = depth_ids[-model.config.block_size :]
-        context_states = state_ids[-model.config.block_size :]
+        x_cond = x if x.size(1) <= 1024 else x[:, -1024:]
+        
+        # 结构感知模型（StructTransformer）前向传播
+        # 推理阶段先使用默认 TEXT 状态：depth=0, state=0
+        depth_ids = torch.zeros_like(x_cond, dtype=torch.long, device=device)
+        state_ids = torch.zeros_like(x_cond, dtype=torch.long, device=device)
 
-        x = torch.tensor([context_ids], dtype=torch.long, device=device)
-        d = torch.tensor([context_depths], dtype=torch.long, device=device)
-        s = torch.tensor([context_states], dtype=torch.long, device=device)
-        logits = model(x, d, s)["lm_logits"][:, -1, :]
-        logits = apply_repetition_penalty(logits, generated_ids, repetition_penalty)
-        logits = apply_no_repeat_ngram(logits, generated_ids, no_repeat_ngram_size)
+        try:
+            out = model(
+                input_ids=x_cond,
+                depth_ids=depth_ids,
+                state_ids=state_ids,
+            )
+        except TypeError:
+            # 兼容部分旧版 forward(input_ids, depth_ids, state_ids) 写法
+            out = model(x_cond, depth_ids, state_ids)
 
-        if temperature <= 0:
-            next_id = torch.argmax(logits, dim=-1, keepdim=True)
+        # 兼容 dict / tuple / tensor 三种返回格式
+        if isinstance(out, dict):
+            logits = out.get("logits", None)
+            if logits is None:
+                logits = out.get("lm_logits", None)
+            if logits is None:
+                raise KeyError("Model output dict does not contain 'logits' or 'lm_logits'.")
+        elif isinstance(out, (tuple, list)):
+            logits = out[0]
         else:
-            logits = apply_top_k(logits / max(temperature, 1e-6), top_k)
-            probs = F.softmax(logits, dim=-1)
-            next_id = torch.multinomial(probs, num_samples=1)
+            logits = out
 
-        token_id = int(next_id.item())
-        if token_id == tokenizer.eos_id:
+        logits = logits[:, -1, :] / max(temperature, 1e-6)
+        if top_k is not None and top_k > 0:
+            top_values, top_indices = torch.topk(logits, k=min(top_k, logits.size(-1)), dim=-1)
+            filtered = torch.full_like(logits, float("-inf"))
+            filtered.scatter_(dim=-1, index=top_indices, src=top_values)
+            logits = filtered
+        probs = torch.softmax(logits, dim=-1)
+
+        next_id = torch.multinomial(probs, num_samples=1).item()
+        
+        # 遇到真实 EOS/SEP/PAD 等特殊符号立即停止。
+        # 注意：本项目 tokenizer wrapper 常用 eos_id，而不是 HF 的 eos_token_id。
+        if next_id in stop_token_ids:
             break
-        generated_ids.append(token_id)
-        input_ids = torch.cat([input_ids, next_id], dim=1)
 
-    return tokenizer.decode(generated_ids).strip()
+        generated_ids.append(next_id)
 
+        # 如果文本层面已经进入下一轮样本/下一轮对话，也提前停止，避免串样本。
+        partial_text = tokenizer.decode(generated_ids)
+        if has_text_stop_marker(partial_text):
+            break
 
-def parse_args() -> argparse.Namespace:
+        x = torch.cat((x, torch.tensor([[next_id]], device=device)), dim=1)
+        
+    return clean_generated_text(tokenizer.decode(generated_ids))
+
+def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model", required=True)
-    parser.add_argument("--tokenizer", default=None)
-    parser.add_argument("--hf-cache-dir", default=None)
-    parser.add_argument("--local-files-only", action="store_true")
-    parser.add_argument("--prompt", default=None)
-    parser.add_argument("--input", default="")
-    parser.add_argument("--interactive", action="store_true")
+    parser.add_argument("--model", type=str, required=True, help="Path to your trained .pt checkpoint")
+    parser.add_argument("--tokenizer", type=str, required=True, help="Path to tokenizer folder or json file")
+    parser.add_argument("--tokenizer_type", type=str, default="auto")
+    parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
+    parser.add_argument("--interactive", action="store_true", default=True)
+    parser.add_argument("--prompt", type=str, default=None, help="Single prompt mode. If set, generate once and exit.")
     parser.add_argument("--max-new-tokens", type=int, default=256)
-    parser.add_argument("--temperature", type=float, default=0.6)
-    parser.add_argument("--top-k", type=int, default=40)
-    parser.add_argument("--repetition-penalty", type=float, default=1.12)
-    parser.add_argument("--no-repeat-ngram-size", type=int, default=4)
-    parser.add_argument("--device", default=None)
-    return parser.parse_args()
+    parser.add_argument("--temperature", type=float, default=0.7)
+    parser.add_argument("--top-k", type=int, default=50)
+    parser.add_argument("--history-turns", type=int, default=3, help="Number of recent dialogue turns to keep in interactive mode.")
+    parser.add_argument("--no-history", action="store_true", help="Disable multi-turn dialogue history in interactive mode.")
+    parser.add_argument("--local-files-only", action="store_true")
+    args = parser.parse_args()
 
+    # 安全分流并载入 21128 全量中文分词器
+    tokenizer = load_tokenizer(
+        tokenizer_ref=args.tokenizer,
+        project_root=PROJECT_ROOT,
+        tokenizer_type=args.tokenizer_type,
+        local_files_only=args.local_files_only
+    )
+    
+    # 强制将 200M 模型与本地分词器结构对齐并载入权重
+    model = load_model(args.model, tokenizer, args.device)
 
-def main() -> None:
-    args = parse_args()
-    if not args.interactive and args.prompt is None:
-        raise ValueError("Provide --prompt or use --interactive.")
-
-    cfg = load_checkpoint_config(args.model)
-    device = torch.device(args.device or ("cuda" if torch.cuda.is_available() else "cpu"))
-    tokenizer = build_tokenizer_from_checkpoint(cfg, args)
-    model = load_model(args.model, tokenizer, device)
-
-    def answer_once(prompt: str, input_text: str = "") -> str:
-        return generate_answer(
-            model=model,
-            tokenizer=tokenizer,
-            instruction=prompt,
-            input_text=input_text,
-            device=device,
+    if args.prompt is not None:
+        response = generate_response(
+            model,
+            tokenizer,
+            args.prompt,
+            args.device,
             max_new_tokens=args.max_new_tokens,
             temperature=args.temperature,
-            top_k=None if args.top_k <= 0 else args.top_k,
-            repetition_penalty=args.repetition_penalty,
-            no_repeat_ngram_size=args.no_repeat_ngram_size,
+            top_k=args.top_k,
+            history=None,
+            history_turns=0,
         )
-
-    if args.interactive:
-        print("SFT chat ready. Type /exit to quit.")
-        while True:
-            try:
-                prompt = input("\nUser> ").strip()
-            except EOFError:
-                break
-            if prompt in {"/exit", "exit", "quit", "q"}:
-                break
-            if not prompt:
-                continue
-            print("Assistant> " + answer_once(prompt))
+        print(response)
         return
+    
+    print("\n" + "="*50)
+    print("✨ 结构感知大模型（Structure-Aware MiniLLM）200M SFT 交互就绪！")
+    print("输入 'exit' 或 'quit' 可退出对话。")
+    print("="*50 + "\n")
+    print("连续对话已开启：默认保留最近 %d 轮上下文。输入 clear 可清空历史。\n" % args.history_turns)
 
-    print(answer_once(args.prompt or "", args.input))
-
+    history: list[tuple[str, str]] = []
+    
+    while True:
+        try:
+            user_input = input("User ＞ ")
+            lower_input = user_input.strip().lower()
+            if lower_input in ["exit", "quit"]:
+                break
+            if lower_input in ["clear", "reset", "清空"]:
+                history.clear()
+                print("Model ＞ 已清空对话历史。\n")
+                continue
+            if not user_input.strip():
+                continue
+                
+            response = generate_response(
+                model,
+                tokenizer,
+                user_input,
+                args.device,
+                max_new_tokens=args.max_new_tokens,
+                temperature=args.temperature,
+                top_k=args.top_k,
+                history=None if args.no_history else history,
+                history_turns=0 if args.no_history else args.history_turns,
+            )
+            print(f"Model ＞ {response}\n")
+            if not args.no_history:
+                history.append((user_input, response))
+        except KeyboardInterrupt:
+            break
 
 if __name__ == "__main__":
     main()

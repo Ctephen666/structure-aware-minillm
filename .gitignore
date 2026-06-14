@@ -18,6 +18,9 @@ outputs/
 runs/
 wandb/
 
+release_4090_sft/checkpoints/* .pt
+release_4090_sft/data/*
+
 # Large datasets generated or downloaded locally
 data/pretrain/
 data/sft/

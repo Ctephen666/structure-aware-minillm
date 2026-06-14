@@ -1,0 +1,212 @@
+{
+  "release": "release_4090_sft",
+  "file_count": 41,
+  "total_size": 2461631924,
+  "files": [
+    {
+      "path": "checkpoints/baseline_tokenizer.json",
+      "size": 6327,
+      "sha256": "f962bdf2296876f606e87c35c02b4b3081b24906c08dc5d39810d97f759c298f"
+    },
+    {
+      "path": "checkpoints/struct_pretrain_200m_zh_best.pt",
+      "size": 2412069542,
+      "sha256": "0d7eadb7fd05d6812d0e510b6e279a8aeaf0cbc6d5265417075b10ff70cc71f4"
+    },
+    {
+      "path": "configs/struct.yaml",
+      "size": 459,
+      "sha256": "c04e0c9a18c307dda56e9c08fd3caa2073908e6928c82a4ea445c264e14d4b9e"
+    },
+    {
+      "path": "configs/struct_continue_30m_chinese_clean_1_2gb.yaml",
+      "size": 1799,
+      "sha256": "e9691389b9f4da3212d393be272b83638cc738eb2ee84bdb0a2836178a9a62d9"
+    },
+    {
+      "path": "configs/struct_continue_80m_knowledge.yaml",
+      "size": 938,
+      "sha256": "e15572a6298624a34b4cfccb6676689e0ed8e3c71af8724a0e99eb33be2b579b"
+    },
+    {
+      "path": "configs/struct_pretrain_200m_zh.yaml",
+      "size": 976,
+      "sha256": "6295e67e05d61f7670f3ed92b9dc56c42658cfe2195eebcf82cf398473c19f7b"
+    },
+    {
+      "path": "configs/struct_pretrain_80m.yaml",
+      "size": 828,
+      "sha256": "d47094e922b4bbd3094b9fdbfa466bfaba61f8819f2058dd0b1839f3ac1189f6"
+    },
+    {
+      "path": "configs/struct_sft_200m_4090.yaml",
+      "size": 899,
+      "sha256": "240f00254cf2ce864d2481878e02d1c3681d7296c18e918c21f795b6ba1941c8"
+    },
+    {
+      "path": "configs/struct_sft_80m_qa.yaml",
+      "size": 867,
+      "sha256": "26b6ee15e8b841c4833c0914f6a1b01a50f8844a84563df02ae7300781e54b7a"
+    },
+    {
+      "path": "data/sft/final/sft_dataset_stats.json",
+      "size": 3201,
+      "sha256": "a2e46074ddfd6f28ac6b890ef4b71186f7f8cd8071350455f4e82d263963d4b4"
+    },
+    {
+      "path": "data/sft/final/sft_test_200m.jsonl",
+      "size": 988026,
+      "sha256": "b1d518c85bff590e033e84e2fbdca8a438160dcd7e027f66d3794beda8ee9d82"
+    },
+    {
+      "path": "data/sft/final/sft_train_200m.jsonl",
+      "size": 46910700,
+      "sha256": "0c5d5a1e09ec95d6e670e0365a0780873edb88b597dbdea3a416b9733a76e3ed"
+    },
+    {
+      "path": "data/sft/final/sft_val_200m.jsonl",
+      "size": 1481645,
+      "sha256": "31797d7267938406617acaa4621889c7ff9a849aca3dbfce4d2d0f86954866dd"
+    },
+    {
+      "path": "decode/generate_baseline.py",
+      "size": 5256,
+      "sha256": "759dfe797534ab35677e15cb49921e38c37e9110c542f122c3aabab4af4a3f4b"
+    },
+    {
+      "path": "decode/generate_pretrain.py",
+      "size": 9628,
+      "sha256": "5873029549cf292eff2c86183557eadb8e2ced738bf2b643fb6c00153b2442c3"
+    },
+    {
+      "path": "decode/generate_struct.py",
+      "size": 9410,
+      "sha256": "1787f0c1e9c40fb4775797f621dd90d1ddf59e129dc13b7e60168fd5c8f59cd1"
+    },
+    {
+      "path": "eval/check_dataset.py",
+      "size": 11869,
+      "sha256": "73133d6c91762efa3a138d73ac4d8cf1c3e68f29fe97554d2b53dcb19d6e385b"
+    },
+    {
+      "path": "eval/run_all.py",
+      "size": 13274,
+      "sha256": "589957e5111ddc814e8f865bff8f46124f3cd5a5e3ddfb9246fec3fdd579c57f"
+    },
+    {
+      "path": "eval/run_struct_all.py",
+      "size": 3389,
+      "sha256": "dd76d186b83e1f7b59756c5978b7cf2928153a38c9ca49c2fc5267d080f31bbf"
+    },
+    {
+      "path": "model/struct_transformer.py",
+      "size": 4816,
+      "sha256": "39ab6d9bef841e9024bf9053fc9f24aaf7372ba6cd28f9609fbf7fb49cd8c713"
+    },
+    {
+      "path": "model/transformer.py",
+      "size": 5511,
+      "sha256": "533eca7c9d3abd8848fabdb3ab84217f4d8f033ddb9011d7e885a2b30ba3d3cf"
+    },
+    {
+      "path": "parser/structure_annotator.py",
+      "size": 5595,
+      "sha256": "fffee333c44fae677b8c98fcdc08d834058333420c19d159b6635643377d9de5"
+    },
+    {
+      "path": "parser/structure_states.py",
+      "size": 304,
+      "sha256": "e5915c9daef4be9f62e5cbfcb00434930392a201f91ad22748d6e393cbe5da42"
+    },
+    {
+      "path": "README.md",
+      "size": 516,
+      "sha256": "0e09871ceb5bb670e187b0d92a0f1d75c268cb0800a77a0cefeaec2889e406a2"
+    },
+    {
+      "path": "README_4090.md",
+      "size": 3051,
+      "sha256": "6ca48304bb5de2f551ed75b0956a4608e83df7b5ca72b7dcc909ca57f7f7fccf"
+    },
+    {
+      "path": "requirements.txt",
+      "size": 64,
+      "sha256": "82c7f9851b2de6fc7c174b404cd79616df14486f9c0a3c57050c2addbecccbe8"
+    },
+    {
+      "path": "run_eval_sft.sh",
+      "size": 849,
+      "sha256": "1a150a21d291fe6eb16e452e6844090bbc906226b61a628210e3954aa50d6547"
+    },
+    {
+      "path": "run_full_sft_4090.sh",
+      "size": 216,
+      "sha256": "87baf95e7eecb8c12ffced9038d11dca871f2c5b99a89a5a1c568a07d2b343d3"
+    },
+    {
+      "path": "run_smoke_sft.sh",
+      "size": 866,
+      "sha256": "56265c05c140ab726f547cfd8eb91767550f4d705d5cb057392c94bf77c8fb9c"
+    },
+    {
+      "path": "scripts/check_sft_data_size.py",
+      "size": 2133,
+      "sha256": "0e93dea39b5cebe2fd41938723e3b2068d1d0144d319692725ff0f7ba50c6ed8"
+    },
+    {
+      "path": "scripts/count_tokens.py",
+      "size": 3395,
+      "sha256": "61fa1e61c388dadac38c73ef09eae759489c625cb25fd177d2e9ab0eac0ff9b1"
+    },
+    {
+      "path": "scripts/normalize_sft_data.py",
+      "size": 4146,
+      "sha256": "dd2b66fab671e58d9c4d1133056afe88c9f0e2d77cbd850d691a1107b2e4bfa5"
+    },
+    {
+      "path": "tokenizer/hf_tokenizer.py",
+      "size": 3146,
+      "sha256": "27ad6e8047226dbc817d5dc4535b2ef18117f148ba115031d40787c876a39ded"
+    },
+    {
+      "path": "tokenizer/regex_tokenizer.py",
+      "size": 4627,
+      "sha256": "87ac2764bd5c4db79fd694e2e16d1546fbaa773e58733aa9af5cd50ee4b9b13c"
+    },
+    {
+      "path": "tokenizer/tokenizer_factory.py",
+      "size": 1989,
+      "sha256": "2fa285d21147b5be45c84889f531049977087bddddd19d67530dcb9fe4040fff"
+    },
+    {
+      "path": "tools/estimate_params.py",
+      "size": 4944,
+      "sha256": "333ffe8f7ee8fb3d022e5234398c7cd82b528d79d72f779fcaf6017808c0672a"
+    },
+    {
+      "path": "train/dataset.py",
+      "size": 3651,
+      "sha256": "314dd140f14f3eee7a10fa8bd269508d70965ea65be00b31b716e71719525d87"
+    },
+    {
+      "path": "train/structure_dataset.py",
+      "size": 13177,
+      "sha256": "30757024911c482d910ba9faacc08c4f135ae1bb26c76d313d63d8984acf4585"
+    },
+    {
+      "path": "train/train_baseline.py",
+      "size": 5659,
+      "sha256": "a22c90a187676efd61b17e51b7e74f4b5370e7bc570644ae183044b027c77732"
+    },
+    {
+      "path": "train/train_pretrain_200m.py",
+      "size": 23227,
+      "sha256": "71a4c5c58240b54f6aae847848a1272b9afaa28765cd19c0cab100a3f44ee601"
+    },
+    {
+      "path": "train/train_struct.py",
+      "size": 21009,
+      "sha256": "b2635ba08ccdff4d400c69f1e82587df25e7eba88c0d3cbac523b500fb7c6a3e"
+    }
+  ]
+}

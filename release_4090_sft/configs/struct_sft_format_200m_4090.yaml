@@ -1,0 +1,49 @@
+seed: 42
+
+tokenizer_type: hf
+tokenizer_name: uer/gpt2-chinese-cluecorpussmall
+hf_cache_dir: .cache/huggingface
+hf_local_files_only: false
+vocab_size: 21128
+
+block_size: 1024
+n_layer: 26
+n_head: 12
+n_embd: 768
+dropout: 0.1
+max_depth: 32
+num_states: 9
+
+# 结构格式强化阶段：适当提高结构辅助 loss 权重。
+lambda_depth: 0.05
+lambda_state: 0.10
+
+batch_size: 16
+gradient_accumulation_steps: 4
+learning_rate: 1.0e-5
+min_lr: 1.0e-6
+warmup_steps: 100
+weight_decay: 0.01
+max_steps: 2000
+eval_interval: 200
+save_interval: 500
+eval_iters: 50
+grad_clip: 1.0
+num_workers: 0
+
+amp: true
+amp_dtype: bfloat16
+float32_matmul_precision: high
+gradient_checkpointing: true
+
+streaming_train: false
+streaming_valid: false
+
+# 使用新生成的结构化格式强化数据。
+train_path: data/sft/struct_final/sft_struct_train_200m.jsonl
+valid_path: data/sft/struct_final/sft_struct_val_200m.jsonl
+
+# 从已经完成的通用 SFT checkpoint 继续训练，不要从预训练模型重新开始。
+init_from_checkpoint: checkpoints/struct_sft_200m_120k.pt
+resume_optimizer: false
+checkpoint_path: checkpoints/sft_struct_200m/struct_sft_struct_200m.pt
