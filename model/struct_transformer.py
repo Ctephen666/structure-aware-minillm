@@ -7,6 +7,7 @@ from dataclasses import dataclass
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.utils.checkpoint import checkpoint
 
 from model.transformer import TransformerBlock
 from parser.structure_states import MAX_DEPTH, NUM_STATES
@@ -49,6 +50,7 @@ class StructTransformerModel(nn.Module):
         self.depth_head = nn.Linear(config.n_embd, config.max_depth + 1)
         self.state_head = nn.Linear(config.n_embd, config.num_states)
         self.token_embedding.weight = self.lm_head.weight
+        self.gradient_checkpointing = False
         self.apply(self._init_weights)
 
     def _init_weights(self, module: nn.Module) -> None:
@@ -83,7 +85,10 @@ class StructTransformerModel(nn.Module):
         )
         x = self.dropout(x)
         for block in self.blocks:
-            x = block(x)
+            if self.gradient_checkpointing and self.training:
+                x = checkpoint(block, x, use_reentrant=False)
+            else:
+                x = block(x)
         x = self.ln_f(x)
 
         lm_logits = self.lm_head(x)

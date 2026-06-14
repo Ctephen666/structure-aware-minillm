@@ -24,6 +24,7 @@ class HFTokenizer:
         except ImportError as exc:
             raise ImportError("Please install transformers to use HFTokenizer: pip install transformers") from exc
 
+        kwargs.setdefault("use_fast", False)
         try:
             tokenizer = AutoTokenizer.from_pretrained(str(name_or_path), **kwargs)
         except Exception:

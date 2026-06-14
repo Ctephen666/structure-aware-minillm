@@ -34,6 +34,24 @@ def build_instruction_parts(prompt: str, answer: str) -> tuple[str, str]:
     return prompt_part, answer_part
 
 
+def extract_prompt_answer(row: dict[str, Any]) -> tuple[str, str] | None:
+    prompt = row.get("prompt")
+    answer = row.get("answer")
+    if isinstance(prompt, str) and isinstance(answer, str):
+        return prompt, answer
+
+    instruction = row.get("instruction")
+    output = row.get("output")
+    if not isinstance(instruction, str) or not isinstance(output, str):
+        return None
+
+    input_text = row.get("input")
+    prompt_parts = [instruction.strip()]
+    if isinstance(input_text, str) and input_text.strip():
+        prompt_parts.append(input_text.strip())
+    return "\n".join(part for part in prompt_parts if part), output
+
+
 def load_structure_rows(path: str | Path) -> list[dict[str, Any] | str]:
     rows: list[dict[str, Any] | str] = []
     with Path(path).open("r", encoding="utf-8") as file:
@@ -67,9 +85,9 @@ def iter_structure_rows(path: str | Path):
 def row_to_training_text(row: dict[str, Any] | str) -> str:
     if isinstance(row, str):
         return row
-    prompt = row.get("prompt")
-    answer = row.get("answer")
-    if isinstance(prompt, str) and isinstance(answer, str):
+    prompt_answer = extract_prompt_answer(row)
+    if prompt_answer is not None:
+        prompt, answer = prompt_answer
         prompt_part, answer_part = build_instruction_parts(prompt, answer)
         return prompt_part + answer_part
     if isinstance(row.get("text"), str):
@@ -93,8 +111,10 @@ def encode_structure_row(
     tokenizer,
     annotator: StructureAnnotator,
 ) -> tuple[list[int], list[int], list[int], list[int], list[int], list[int]] | None:
-    if isinstance(row, dict) and isinstance(row.get("prompt"), str) and isinstance(row.get("answer"), str):
-        prompt_part, answer_part = build_instruction_parts(row["prompt"], row["answer"])
+    prompt_answer = extract_prompt_answer(row) if isinstance(row, dict) else None
+    if prompt_answer is not None:
+        prompt, answer = prompt_answer
+        prompt_part, answer_part = build_instruction_parts(prompt, answer)
         full_text = prompt_part + answer_part
         prompt_ids = tokenizer.encode(prompt_part, add_special_tokens=False)
         answer_ids = tokenizer.encode(answer_part, add_special_tokens=False)

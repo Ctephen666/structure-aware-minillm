@@ -1,9 +1,12 @@
 __pycache__/
+**/__pycache__/
+*.pyc
 *.py[cod]
 
 .cache/
 logs/
 *.log
+train_log*.txt
 
 # Large model artifacts and training outputs
 checkpoints/*.pt
@@ -18,6 +21,10 @@ wandb/
 # Large datasets generated or downloaded locally
 data/pretrain/
 data/sft/
+data/pretrain/**/*.bin
+data/pretrain/**/*.idx
+data/pretrain/**/*.arrow
+data/pretrain/**/.cache/
 data/**/*.parquet
 data/**/*.arrow
 data/**/*.tar

@@ -149,7 +149,30 @@ def load_checkpoint(
 ) -> dict[str, Any]:
     checkpoint_path = resolve_path(path)
     checkpoint = torch.load(checkpoint_path, map_location=device)
-    model.load_state_dict(checkpoint["model"])
+    state_dict = checkpoint["model"]
+    model_state = model.state_dict()
+    patched_state = {}
+    skipped = []
+    for name, value in state_dict.items():
+        if name in model_state and model_state[name].shape != value.shape:
+            if name == "position_embedding.weight" and model_state[name].ndim == 2 and value.ndim == 2:
+                resized = model_state[name].clone()
+                rows = min(resized.shape[0], value.shape[0])
+                cols = min(resized.shape[1], value.shape[1])
+                resized[:rows, :cols] = value[:rows, :cols]
+                patched_state[name] = resized
+                print(
+                    f"Resized checkpoint tensor {name}: "
+                    f"{tuple(value.shape)} -> {tuple(resized.shape)}"
+                )
+            else:
+                skipped.append((name, tuple(value.shape), tuple(model_state[name].shape)))
+            continue
+        patched_state[name] = value
+    if skipped:
+        for name, old_shape, new_shape in skipped:
+            print(f"Skipped incompatible checkpoint tensor {name}: {old_shape} -> {new_shape}")
+    model.load_state_dict(patched_state, strict=False)
     if optimizer is not None and "optimizer" in checkpoint:
         optimizer.load_state_dict(checkpoint["optimizer"])
     if scaler is not None and "scaler" in checkpoint:
@@ -346,8 +369,10 @@ def main() -> None:
     )
 
     model = StructTransformerModel(build_model_config(cfg, tokenizer)).to(device)
+    model.gradient_checkpointing = bool(cfg.get("gradient_checkpointing", False))
     print(f"Tokenizer vocab size: {tokenizer.vocab_size}")
     print(f"Model parameters: {count_parameters(model) / 1_000_000:.2f}M")
+    print(f"Gradient checkpointing: {model.gradient_checkpointing}")
     if args.dry_run:
         print("Dry run finished before optimizer/training.")
         return

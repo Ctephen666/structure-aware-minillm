@@ -1,0 +1,47 @@
+seed: 42
+
+tokenizer_type: hf
+tokenizer_name: uer/gpt2-chinese-cluecorpussmall
+hf_cache_dir: .cache/huggingface
+hf_local_files_only: false
+vocab_size: 21128
+
+block_size: 512
+n_layer: 26
+n_head: 12
+n_embd: 768
+dropout: 0.1
+max_depth: 32
+num_states: 9
+lambda_depth: 0.03
+lambda_state: 0.05
+
+batch_size: 1
+gradient_accumulation_steps: 32
+
+learning_rate: 0.0002
+min_lr: 0.00003
+weight_decay: 0.1
+warmup_steps: 1000
+lr_schedule: cosine
+grad_clip: 1.0
+
+max_steps: 50000
+eval_interval: 500
+save_interval: 1000
+eval_iters: 50
+num_workers: 0
+
+use_amp: true
+amp: true
+amp_dtype: float16
+gradient_checkpointing: true
+float32_matmul_precision: high
+
+train_manifest: data/pretrain/zh_overtrain/train_manifest.json
+valid_path: data/pretrain/zh_overtrain/valid.jsonl
+
+checkpoint_path: checkpoints/struct_pretrain_200m_zh.pt
+best_checkpoint_path: checkpoints/struct_pretrain_200m_zh_best.pt
+latest_checkpoint_path: checkpoints/struct_pretrain_200m_zh_latest.pt
+runs_dir: runs/pretrain_200m_zh
